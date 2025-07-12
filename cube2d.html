@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Controllable Red Cube - With Shop</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #333;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+            overflow: auto;
+        }
+        canvas {
+            border: 1px solid #fff;
+        }
+        .controls {
+            color: white;
+            margin-top: 10px;
+            text-align: center;
+        }
+        .score {
+            color: #ffff00;
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+        .shop {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            border: 2px solid #ffff00;
+            display: none;
+            max-width: 500px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .shop-header {
+            font-size: 24px;
+            color: #ffff00;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .shop-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            margin: 5px 0;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .shop-item:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        .shop-item.owned {
+            background: rgba(0, 255, 0, 0.2);
+        }
+        .shop-item.cant-afford {
+            background: rgba(255, 0, 0, 0.2);
+            opacity: 0.5;
+        }
+        .shop-price {
+            color: #ffff00;
+            font-weight: bold;
+        }
+        .shop-owned {
+            color: #00ff00;
+            font-weight: bold;
+        }
+        .shop-close {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            font-size: 20px;
+            cursor: pointer;
+            color: #ff0000;
+        }
+    </style>
+</head>
+<body>
+    <div class="score">Score: <span id="score">0</span> | Speed: <span id="speed">Normal</span> | Jump: <span id="jump">Normal</span> | Coins: <span id="coins">0</span></div>
+    <canvas id="canvas" width="1400" height="1200"></canvas>
+    <div class="controls">
+        🎮 Arrow Keys to Move • Spacebar to Jump • S for Shop • Collect Items!
+    </div>
+    
+    <div id="shop" class="shop">
+        <div class="shop-close" onclick="closeShop()">×</div>
+        <div class="shop-header">🛒 CUBE SHOP</div>
+        <div id="shop-items"></div>
+        <div style="text-align: center; margin-top: 20px; color: #aaa;">
+            Press S to close shop
+        </div>
+    </div>
+    
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Cube properties
+        let cubeX = 650;
+        let cubeY = 900;
+        let cubeSize = 100;
+        let speed = 7;
+        let baseSpeed = 7;
+        
+        // Physics
+        let velocityY = 0;
+        let gravity = 0.5;
+        let jumpPower = -15;
+        let baseJumpPower = -15;
+        let onGround = false;
+        let groundY = 1050 - cubeSize;
+        
+        // Game stats
+        let score = 0;
+        let coins = 0;
+        let speedBoostTimer = 0;
+        let jumpBoostTimer = 0;
+        let shopOpen = false;
+        
+        // Camera system
+        let cameraY = 0;
+        let targetCameraY = 0;
+        
+        // Shop items and upgrades
+        let shopItems = [
+            { id: 'speed1', name: 'Speed Boost I', description: 'Permanent +20% speed', price: 50, owned: false, type: 'upgrade' },
+            { id: 'speed2', name: 'Speed Boost II', description: 'Permanent +40% speed', price: 150, owned: false, type: 'upgrade', requires: 'speed1' },
+            { id: 'speed3', name: 'Speed Boost III', description: 'Permanent +60% speed', price: 300, owned: false, type: 'upgrade', requires: 'speed2' },
+            { id: 'jump1', name: 'Jump Boost I', description: 'Permanent +20% jump height', price: 60, owned: false, type: 'upgrade' },
+            { id: 'jump2', name: 'Jump Boost II', description: 'Permanent +40% jump height', price: 180, owned: false, type: 'upgrade', requires: 'jump1' },
+            { id: 'jump3', name: 'Jump Boost III', description: 'Permanent +60% jump height', price: 350, owned: false, type: 'upgrade', requires: 'jump2' },
+            { id: 'size1', name: 'Compact Cube', description: 'Smaller hitbox, easier to fit through gaps', price: 100, owned: false, type: 'upgrade' },
+            { id: 'color1', name: 'Blue Cube', description: 'Cool blue color', price: 25, owned: false, type: 'cosmetic' },
+            { id: 'color2', name: 'Green Cube', description: 'Nature green color', price: 25, owned: false, type: 'cosmetic' },
+            { id: 'color3', name: 'Purple Cube', description: 'Royal purple color', price: 25, owned: false, type: 'cosmetic' },
+            { id: 'color4', name: 'Gold Cube', description: 'Shiny gold color', price: 100, owned: false, type: 'cosmetic' },
+            { id: 'color5', name: 'Rainbow Cube', description: 'Cycling rainbow colors', price: 200, owned: false, type: 'cosmetic' },
+            { id: 'trail1', name: 'Sparkle Trail', description: 'Leave sparkles when moving', price: 75, owned: false, type: 'effect' },
+            { id: 'trail2', name: 'Fire Trail', description: 'Leave fire particles when moving', price: 125, owned: false, type: 'effect' },
+            { id: 'magnet', name: 'Coin Magnet', description: 'Attract coins from further away', price: 150, owned: false, type: 'ability' }
+        ];
+        
+        let activeColor = 'red';
+        let activeTrail = 'none';
+        let magnetActive = false;
+        
+        // Items
+        let coinItems = [];
+        let powerUps = [];
+        let particles = [];
+        
+        // Initialize items
+        function createItems() {
+            // Add coins throughout the level
+            coinItems = [
+                // Level 1 coins (Ground Level)
+                { x: 350, y: 850, width: 20, height: 20, collected: false },
+                { x: 750, y: 870, width: 20, height: 20, collected: false },
+                { x: 1150, y: 860, width: 20, height: 20, collected: false },
+                { x: 100, y: 880, width: 20, height: 20, collected: false },
+                { x: 550, y: 890, width: 20, height: 20, collected: false },
+                { x: 950, y: 880, width: 20, height: 20, collected: false },
+                { x: 1300, y: 870, width: 20, height: 20, collected: false },
+                { x: 50, y: 950, width: 20, height: 20, collected: false },
+                { x: 450, y: 940, width: 20, height: 20, collected: false },
+                { x: 850, y: 950, width: 20, height: 20, collected: false },
+                { x: 1250, y: 930, width: 20, height: 20, collected: false },
+                
+                // Level 2 coins
+                { x: 250, y: 730, width: 20, height: 20, collected: false },
+                { x: 650, y: 750, width: 20, height: 20, collected: false },
+                { x: 1050, y: 740, width: 20, height: 20, collected: false },
+                { x: 120, y: 760, width: 20, height: 20, collected: false },
+                { x: 480, y: 770, width: 20, height: 20, collected: false },
+                { x: 880, y: 760, width: 20, height: 20, collected: false },
+                { x: 1280, y: 750, width: 20, height: 20, collected: false },
+                { x: 380, y: 720, width: 20, height: 20, collected: false },
+                { x: 780, y: 710, width: 20, height: 20, collected: false },
+                { x: 1180, y: 720, width: 20, height: 20, collected: false },
+                
+                // Level 3 coins
+                { x: 200, y: 610, width: 20, height: 20, collected: false },
+                { x: 550, y: 630, width: 20, height: 20, collected: false },
+                { x: 900, y: 620, width: 20, height: 20, collected: false },
+                { x: 1250, y: 600, width: 20, height: 20, collected: false },
+                { x: 80, y: 640, width: 20, height: 20, collected: false },
+                { x: 370, y: 650, width: 20, height: 20, collected: false },
+                { x: 720, y: 640, width: 20, height: 20, collected: false },
+                { x: 1070, y: 630, width: 20, height: 20, collected: false },
+                { x: 1320, y: 620, width: 20, height: 20, collected: false },
+                { x: 450, y: 580, width: 20, height: 20, collected: false },
+                { x: 800, y: 570, width: 20, height: 20, collected: false },
+                { x: 1150, y: 590, width: 20, height: 20, collected: false },
+                
+                // Level 4 coins
+                { x: 150, y: 490, width: 20, height: 20, collected: false },
+                { x: 500, y: 510, width: 20, height: 20, collected: false },
+                { x: 850, y: 500, width: 20, height: 20, collected: false },
+                { x: 1200, y: 480, width: 20, height: 20, collected: false },
+                { x: 70, y: 520, width: 20, height: 20, collected: false },
+                { x: 320, y: 530, width: 20, height: 20, collected: false },
+                { x: 670, y: 520, width: 20, height: 20, collected: false },
+                { x: 1020, y: 510, width: 20, height: 20, collected: false },
+                { x: 1350, y: 500, width: 20, height: 20, collected: false },
+                { x: 250, y: 470, width: 20, height: 20, collected: false },
+                { x: 600, y: 460, width: 20, height: 20, collected: false },
+                { x: 950, y: 470, width: 20, height: 20, collected: false },
+                { x: 1300, y: 460, width: 20, height: 20, collected: false },
+                
+                // Level 5 coins
+                { x: 300, y: 370, width: 20, height: 20, collected: false },
+                { x: 700, y: 390, width: 20, height: 20, collected: false },
+                { x: 1100, y: 380, width: 20, height: 20, collected: false },
+                { x: 150, y: 400, width: 20, height: 20, collected: false },
+                { x: 500, y: 410, width: 20, height: 20, collected: false },
+                { x: 850, y: 400, width: 20, height: 20, collected: false },
+                { x: 1250, y: 390, width: 20, height: 20, collected: false },
+                { x: 400, y: 350, width: 20, height: 20, collected: false },
+                { x: 800, y: 340, width: 20, height: 20, collected: false },
+                { x: 1200, y: 350, width: 20, height: 20, collected: false },
+                { x: 50, y: 380, width: 20, height: 20, collected: false },
+                { x: 1350, y: 370, width: 20, height: 20, collected: false },
+                
+                // Level 6 coins
+                { x: 250, y: 250, width: 20, height: 20, collected: false },
+                { x: 600, y: 270, width: 20, height: 20, collected: false },
+                { x: 950, y: 260, width: 20, height: 20, collected: false },
+                { x: 1300, y: 280, width: 20, height: 20, collected: false },
+                { x: 120, y: 280, width: 20, height: 20, collected: false },
+                { x: 470, y: 290, width: 20, height: 20, collected: false },
+                { x: 820, y: 280, width: 20, height: 20, collected: false },
+                { x: 1170, y: 270, width: 20, height: 20, collected: false },
+                { x: 350, y: 230, width: 20, height: 20, collected: false },
+                { x: 700, y: 240, width: 20, height: 20, collected: false },
+                { x: 1050, y: 230, width: 20, height: 20, collected: false },
+                { x: 30, y: 260, width: 20, height: 20, collected: false },
+                { x: 1370, y: 250, width: 20, height: 20, collected: false },
+                
+                // Sky level coins (Level 7)
+                { x: 200, y: 130, width: 20, height: 20, collected: false },
+                { x: 550, y: 150, width: 20, height: 20, collected: false },
+                { x: 900, y: 140, width: 20, height: 20, collected: false },
+                { x: 1250, y: 160, width: 20, height: 20, collected: false },
+                { x: 80, y: 160, width: 20, height: 20, collected: false },
+                { x: 400, y: 170, width: 20, height: 20, collected: false },
+                { x: 750, y: 160, width: 20, height: 20, collected: false },
+                { x: 1100, y: 150, width: 20, height: 20, collected: false },
+                { x: 1350, y: 140, width: 20, height: 20, collected: false },
+                { x: 300, y: 110, width: 20, height: 20, collected: false },
+                { x: 650, y: 120, width: 20, height: 20, collected: false },
+                { x: 1000, y: 110, width: 20, height: 20, collected: false },
+                
+                // High sky coins (Level 8)
+                { x: 350, y: 30, width: 20, height: 20, collected: false },
+                { x: 750, y: 50, width: 20, height: 20, collected: false },
+                { x: 1150, y: 40, width: 20, height: 20, collected: false },
+                { x: 200, y: 60, width: 20, height: 20, collected: false },
+                { x: 550, y: 70, width: 20, height: 20, collected: false },
+                { x: 900, y: 60, width: 20, height: 20, collected: false },
+                { x: 1300, y: 50, width: 20, height: 20, collected: false },
+                { x: 100, y: 40, width: 20, height: 20, collected: false },
+                { x: 1250, y: 30, width: 20, height: 20, collected: false },
+                
+                // Bonus coins in tricky spots
+                { x: 400, y: 700, width: 20, height: 20, collected: false },
+                { x: 800, y: 570, width: 20, height: 20, collected: false },
+                { x: 450, y: 430, width: 20, height: 20, collected: false },
+                { x: 650, y: 310, width: 20, height: 20, collected: false },
+                { x: 350, y: 190, width: 20, height: 20, collected: false },
+                
+                // More bonus coins for extra challenge
+                { x: 25, y: 1000, width: 20, height: 20, collected: false },
+                { x: 1375, y: 1000, width: 20, height: 20, collected: false },
+                { x: 75, y: 800, width: 20, height: 20, collected: false },
+                { x: 1325, y: 800, width: 20, height: 20, collected: false },
+                { x: 50, y: 600, width: 20, height: 20, collected: false },
+                { x: 1350, y: 600, width: 20, height: 20, collected: false },
+                { x: 100, y: 400, width: 20, height: 20, collected: false },
+                { x: 1300, y: 400, width: 20, height: 20, collected: false },
+                { x: 25, y: 200, width: 20, height: 20, collected: false },
+                { x: 1375, y: 200, width: 20, height: 20, collected: false },
+                { x: 75, y: 80, width: 20, height: 20, collected: false },
+                { x: 1325, y: 80, width: 20, height: 20, collected: false },
+                
+                // Mid-air bonus coins (risky to collect!)
+                { x: 525, y: 800, width: 20, height: 20, collected: false },
+                { x: 875, y: 680, width: 20, height: 20, collected: false },
+                { x: 325, y: 560, width: 20, height: 20, collected: false },
+                { x: 775, y: 440, width: 20, height: 20, collected: false },
+                { x: 425, y: 320, width: 20, height: 20, collected: false },
+                { x: 875, y: 200, width: 20, height: 20, collected: false },
+                { x: 525, y: 120, width: 20, height: 20, collected: false },
+                { x: 975, y: 80, width: 20, height: 20, collected: false },
+                
+                // Easy collection coins near ground
+                { x: 200, y: 1000, width: 20, height: 20, collected: false },
+                { x: 400, y: 1000, width: 20, height: 20, collected: false },
+                { x: 600, y: 1000, width: 20, height: 20, collected: false },
+                { x: 800, y: 1000, width: 20, height: 20, collected: false },
+                { x: 1000, y: 1000, width: 20, height: 20, collected: false },
+                { x: 1200, y: 1000, width: 20, height: 20, collected: false },
+                
+                // MEGA COIN BOOST! Even more coins everywhere!
+                
+                // Extra ground level coins
+                { x: 125, y: 990, width: 20, height: 20, collected: false },
+                { x: 275, y: 980, width: 20, height: 20, collected: false },
+                { x: 525, y: 970, width: 20, height: 20, collected: false },
+                { x: 725, y: 960, width: 20, height: 20, collected: false },
+                { x: 925, y: 970, width: 20, height: 20, collected: false },
+                { x: 1125, y: 980, width: 20, height: 20, collected: false },
+                { x: 1275, y: 990, width: 20, height: 20, collected: false },
+                
+                // More Level 1 coins
+                { x: 150, y: 820, width: 20, height: 20, collected: false },
+                { x: 350, y: 810, width: 20, height: 20, collected: false },
+                { x: 550, y: 800, width: 20, height: 20, collected: false },
+                { x: 750, y: 790, width: 20, height: 20, collected: false },
+                { x: 950, y: 800, width: 20, height: 20, collected: false },
+                { x: 1150, y: 810, width: 20, height: 20, collected: false },
+                { x: 1350, y: 820, width: 20, height: 20, collected: false },
+                
+                // Extra Level 2 coins
+                { x: 180, y: 700, width: 20, height: 20, collected: false },
+                { x: 420, y: 690, width: 20, height: 20, collected: false },
+                { x: 580, y: 680, width: 20, height: 20, collected: false },
+                { x: 820, y: 670, width: 20, height: 20, collected: false },
+                { x: 980, y: 680, width: 20, height: 20, collected: false },
+                { x: 1220, y: 690, width: 20, height: 20, collected: false },
+                { x: 1380, y: 700, width: 20, height: 20, collected: false },
+                
+                // Extra Level 3 coins
+                { x: 160, y: 580, width: 20, height: 20, collected: false },
+                { x: 320, y: 570, width: 20, height: 20, collected: false },
+                { x: 480, y: 560, width: 20, height: 20, collected: false },
+                { x: 640, y: 550, width: 20, height: 20, collected: false },
+                { x: 800, y: 540, width: 20, height: 20, collected: false },
+                { x: 960, y: 550, width: 20, height: 20, collected: false },
+                { x: 1120, y: 560, width: 20, height: 20, collected: false },
+                { x: 1280, y: 570, width: 20, height: 20, collected: false },
+                
+                // Extra Level 4 coins
+                { x: 140, y: 450, width: 20, height: 20, collected: false },
+                { x: 300, y: 440, width: 20, height: 20, collected: false },
+                { x: 460, y: 430, width: 20, height: 20, collected: false },
+                { x: 620, y: 420, width: 20, height: 20, collected: false },
+                { x: 780, y: 410, width: 20, height: 20, collected: false },
+                { x: 940, y: 420, width: 20, height: 20, collected: false },
+                { x: 1100, y: 430, width: 20, height: 20, collected: false },
+                { x: 1260, y: 440, width: 20, height: 20, collected: false },
+                
+                // Extra Level 5 coins
+                { x: 120, y: 330, width: 20, height: 20, collected: false },
+                { x: 280, y: 320, width: 20, height: 20, collected: false },
+                { x: 440, y: 310, width: 20, height: 20, collected: false },
+                { x: 600, y: 300, width: 20, height: 20, collected: false },
+                { x: 760, y: 290, width: 20, height: 20, collected: false },
+                { x: 920, y: 300, width: 20, height: 20, collected: false },
+                { x: 1080, y: 310, width: 20, height: 20, collected: false },
+                { x: 1240, y: 320, width: 20, height: 20, collected: false },
+                
+                // Extra Level 6 coins
+                { x: 100, y: 210, width: 20, height: 20, collected: false },
+                { x: 260, y: 200, width: 20, height: 20, collected: false },
+                { x: 420, y: 190, width: 20, height: 20, collected: false },
+                { x: 580, y: 180, width: 20, height: 20, collected: false },
+                { x: 740, y: 170, width: 20, height: 20, collected: false },
+                { x: 900, y: 180, width: 20, height: 20, collected: false },
+                { x: 1060, y: 190, width: 20, height: 20, collected: false },
+                { x: 1220, y: 200, width: 20, height: 20, collected: false },
+                
+                // Extra Sky Level coins
+                { x: 90, y: 90, width: 20, height: 20, collected: false },
+                { x: 250, y: 80, width: 20, height: 20, collected: false },
+                { x: 410, y: 70, width: 20, height: 20, collected: false },
+                { x: 570, y: 60, width: 20, height: 20, collected: false },
+                { x: 730, y: 50, width: 20, height: 20, collected: false },
+                { x: 890, y: 60, width: 20, height: 20, collected: false },
+                { x: 1050, y: 70, width: 20, height: 20, collected: false },
+                { x: 1210, y: 80, width: 20, height: 20, collected: false },
+                { x: 1370, y: 90, width: 20, height: 20, collected: false },
+                
+                // Ultra challenging coins floating in air
+                { x: 175, y: 900, width: 20, height: 20, collected: false },
+                { x: 375, y: 780, width: 20, height: 20, collected: false },
+                { x: 575, y: 660, width: 20, height: 20, collected: false },
+                { x: 775, y: 540, width: 20, height: 20, collected: false },
+                { x: 975, y: 420, width: 20, height: 20, collected: false },
+                { x: 1175, y: 300, width: 20, height: 20, collected: false },
+                { x: 675, y: 180, width: 20, height: 20, collected: false },
+                { x: 475, y: 120, width: 20, height: 20, collected: false },
+                { x: 875, y: 100, width: 20, height: 20, collected: false },
+                
+                // Hidden treasure coins in corners
+                { x: 5, y: 50, width: 20, height: 20, collected: false },
+                { x: 1380, y: 50, width: 20, height: 20, collected: false },
+                { x: 10, y: 500, width: 20, height: 20, collected: false },
+                { x: 1385, y: 500, width: 20, height: 20, collected: false },
+                { x: 15, y: 1020, width: 20, height: 20, collected: false },
+                { x: 1380, y: 1020, width: 20, height: 20, collected: false },
+                
+                // Bonus cluster coins
+                { x: 680, y: 850, width: 20, height: 20, collected: false },
+                { x: 700, y: 830, width: 20, height: 20, collected: false },
+                { x: 720, y: 810, width: 20, height: 20, collected: false },
+                { x: 740, y: 790, width: 20, height: 20, collected: false },
+                { x: 760, y: 770, width: 20, height: 20, collected: false }
+            ];
+            
+            // Add power-ups
+            powerUps = [
+                // Speed boost power-ups
+                { x: 500, y: 800, width: 25, height: 25, type: 'speed', collected: false },
+                { x: 700, y: 600, width: 25, height: 25, type: 'speed', collected: false },
+                { x: 400, y: 400, width: 25, height: 25, type: 'speed', collected: false },
+                { x: 800, y: 200, width: 25, height: 25, type: 'speed', collected: false },
+                
+                // Jump boost power-ups
+                { x: 300, y: 700, width: 25, height: 25, type: 'jump', collected: false },
+                { x: 900, y: 500, width: 25, height: 25, type: 'jump', collected: false },
+                { x: 600, y: 300, width: 25, height: 25, type: 'jump', collected: false },
+                { x: 1000, y: 100, width: 25, height: 25, type: 'jump', collected: false }
+            ];
+        }
+        
+        // Shop functions
+        function openShop() {
+            shopOpen = true;
+            document.getElementById('shop').style.display = 'block';
+            updateShopDisplay();
+        }
+        
+        function closeShop() {
+            shopOpen = false;
+            document.getElementById('shop').style.display = 'none';
+        }
+        
+        function updateShopDisplay() {
+            const shopItemsDiv = document.getElementById('shop-items');
+            shopItemsDiv.innerHTML = '';
+            
+            shopItems.forEach(item => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'shop-item';
+                
+                if (item.owned) {
+                    itemDiv.classList.add('owned');
+                } else if (coins < item.price) {
+                    itemDiv.classList.add('cant-afford');
+                } else if (item.requires && !shopItems.find(i => i.id === item.requires).owned) {
+                    itemDiv.classList.add('cant-afford');
+                }
+                
+                itemDiv.innerHTML = `
+                    <div>
+                        <div style="font-weight: bold;">${item.name}</div>
+                        <div style="font-size: 12px; color: #aaa;">${item.description}</div>
+                    </div>
+                    <div class="shop-price">
+                        ${item.owned ? '<span class="shop-owned">OWNED</span>' : `${item.price} coins`}
+                    </div>
+                `;
+                
+                if (!item.owned && coins >= item.price && (!item.requires || shopItems.find(i => i.id === item.requires).owned)) {
+                    itemDiv.onclick = () => buyItem(item);
+                }
+                
+                shopItemsDiv.appendChild(itemDiv);
+            });
+        }
+        
+        function buyItem(item) {
+            if (coins >= item.price && !item.owned) {
+                coins -= item.price;
+                item.owned = true;
+                
+                // Apply upgrades
+                if (item.id === 'speed1') baseSpeed = 7 * 1.2;
+                if (item.id === 'speed2') baseSpeed = 7 * 1.4;
+                if (item.id === 'speed3') baseSpeed = 7 * 1.6;
+                if (item.id === 'jump1') baseJumpPower = -15 * 1.2;
+                if (item.id === 'jump2') baseJumpPower = -15 * 1.4;
+                if (item.id === 'jump3') baseJumpPower = -15 * 1.6;
+                if (item.id === 'size1') cubeSize = 80;
+                if (item.id === 'color1') activeColor = 'blue';
+                if (item.id === 'color2') activeColor = 'green';
+                if (item.id === 'color3') activeColor = 'purple';
+                if (item.id === 'color4') activeColor = 'gold';
+                if (item.id === 'color5') activeColor = 'rainbow';
+                if (item.id === 'trail1') activeTrail = 'sparkle';
+                if (item.id === 'trail2') activeTrail = 'fire';
+                if (item.id === 'magnet') magnetActive = true;
+                
+                updateScore();
+                updateShopDisplay();
+            }
+        }
+        
+        // Platforms
+        const platforms = [
+            // Level 1 - Basic stepping stones
+            { x: 300, y: 900, width: 120, height: 30 },
+            { x: 700, y: 920, width: 150, height: 30 },
+            { x: 1100, y: 910, width: 120, height: 30 },
+            
+            // Level 2 - Spread out
+            { x: 200, y: 780, width: 130, height: 30 },
+            { x: 600, y: 800, width: 140, height: 30 },
+            { x: 1000, y: 790, width: 120, height: 30 },
+            
+            // Level 3 - Getting challenging
+            { x: 150, y: 660, width: 100, height: 30 },
+            { x: 500, y: 680, width: 120, height: 30 },
+            { x: 850, y: 670, width: 110, height: 30 },
+            { x: 1200, y: 650, width: 100, height: 30 },
+            
+            // Level 4 - Fewer options
+            { x: 100, y: 540, width: 100, height: 30 },
+            { x: 450, y: 560, width: 110, height: 30 },
+            { x: 800, y: 550, width: 100, height: 30 },
+            { x: 1150, y: 530, width: 120, height: 30 },
+            
+            // Level 5 - Even fewer platforms
+            { x: 250, y: 420, width: 100, height: 30 },
+            { x: 650, y: 440, width: 120, height: 30 },
+            { x: 1050, y: 430, width: 100, height: 30 },
+            
+            // Level 6 - Strategic placement
+            { x: 200, y: 300, width: 90, height: 30 },
+            { x: 550, y: 320, width: 100, height: 30 },
+            { x: 900, y: 310, width: 95, height: 30 },
+            { x: 1250, y: 330, width: 100, height: 30 },
+            
+            // Level 7 - Sky level - very few platforms
+            { x: 150, y: 180, width: 80, height: 30 },
+            { x: 500, y: 200, width: 100, height: 30 },
+            { x: 850, y: 190, width: 85, height: 30 },
+            { x: 1200, y: 210, width: 90, height: 30 },
+            
+            // Level 8 - High sky - minimal platforms
+            { x: 300, y: 80, width: 90, height: 30 },
+            { x: 700, y: 100, width: 100, height: 30 },
+            { x: 1100, y: 90, width: 85, height: 30 },
+            
+            // The ceiling - ultimate challenge
+            { x: 500, y: 20, width: 120, height: 30 },
+            { x: 850, y: 30, width: 110, height: 30 },
+            
+            // A few challenge platforms (small ones)
+            { x: 350, y: 750, width: 60, height: 20 },
+            { x: 750, y: 620, width: 50, height: 20 },
+            { x: 400, y: 480, width: 45, height: 20 },
+            { x: 600, y: 360, width: 40, height: 20 },
+            { x: 300, y: 240, width: 35, height: 20 },
+            
+            // Bridge platforms at edges
+            { x: 0, y: 600, width: 60, height: 20 },
+            { x: 1340, y: 600, width: 60, height: 20 }
+        ];
+        
+        // Keyboard state
+        const keys = {};
+        
+        // Initialize items
+        createItems();
+        
+        // Keyboard event listeners
+        document.addEventListener('keydown', (e) => {
+            keys[e.key] = true;
+            if (e.key === 's' || e.key === 'S') {
+                if (shopOpen) {
+                    closeShop();
+                } else {
+                    openShop();
+                }
+            }
+        });
+        
+        document.addEventListener('keyup', (e) => {
+            keys[e.key] = false;
+        });
+        
+        // Collision detection function
+        function checkCollision(rect1, rect2) {
+            return rect1.x < rect2.x + rect2.width &&
+                   rect1.x + rect1.width > rect2.x &&
+                   rect1.y < rect2.y + rect2.height &&
+                   rect1.y + rect1.height > rect2.y;
+        }
+        
+        // Update power-up timers
+        function updatePowerUps() {
+            if (speedBoostTimer > 0) {
+                speedBoostTimer--;
+                speed = baseSpeed * 1.5;
+            } else {
+                speed = baseSpeed;
+            }
+            
+            if (jumpBoostTimer > 0) {
+                jumpBoostTimer--;
+                jumpPower = baseJumpPower * 1.3;
+            } else {
+                jumpPower = baseJumpPower;
+            }
+        }
+        
+        // Add particle effects
+        function addParticle(x, y, type) {
+            particles.push({
+                x: x,
+                y: y,
+                vx: (Math.random() - 0.5) * 4,
+                vy: (Math.random() - 0.5) * 4,
+                life: 30,
+                type: type
+            });
+        }
+        
+        // Update particles
+        function updateParticles() {
+            particles = particles.filter(particle => {
+                particle.x += particle.vx;
+                particle.y += particle.vy;
+                particle.life--;
+                return particle.life > 0;
+            });
+        }
+        
+        // Check item collection
+        function checkItems() {
+            const cubeRect = { x: cubeX, y: cubeY, width: cubeSize, height: cubeSize };
+            const magnetRange = magnetActive ? 80 : 0;
+            
+            // Check coin collection
+            coinItems.forEach(coin => {
+                if (!coin.collected) {
+                    const distance = Math.sqrt(Math.pow(cubeX - coin.x, 2) + Math.pow(cubeY - coin.y, 2));
+                    
+                    // Magnet effect
+                    if (magnetActive && distance < magnetRange) {
+                        const dx = cubeX - coin.x;
+                        const dy = cubeY - coin.y;
+                        coin.x += dx * 0.1;
+                        coin.y += dy * 0.1;
+                    }
+                    
+                    if (checkCollision(cubeRect, coin)) {
+                        coin.collected = true;
+                        score += 10;
+                        coins++;
+                        addParticle(coin.x, coin.y, 'coin');
+                        updateScore();
+                    }
+                }
+            });
+            
+            // Check power-up collection
+            powerUps.forEach(powerUp => {
+                if (!powerUp.collected && checkCollision(cubeRect, powerUp)) {
+                    powerUp.collected = true;
+                    if (powerUp.type === 'speed') {
+                        speedBoostTimer = 600;
+                        score += 25;
+                    } else if (powerUp.type === 'jump') {
+                        jumpBoostTimer = 600;
+                        score += 25;
+                    }
+                    addParticle(powerUp.x, powerUp.y, 'powerup');
+                    updateScore();
+                }
+            });
+        }
+        
+        // Update score display
+        function updateScore() {
+            document.getElementById('score').textContent = score;
+            document.getElementById('coins').textContent = coins;
+            document.getElementById('speed').textContent = speedBoostTimer > 0 ? 'BOOSTED!' : 'Normal';
+            document.getElementById('jump').textContent = jumpBoostTimer > 0 ? 'BOOSTED!' : 'Normal';
+        }
+        
+        function updateCube() {
+            if (shopOpen) return; // Don't update game while shop is open
+            
+            // Update power-ups
+            updatePowerUps();
+            
+            // Update particles
+            updateParticles();
+            
+            // Add trail particles
+            if (activeTrail === 'sparkle' && (keys['ArrowLeft'] || keys['ArrowRight'])) {
+                addParticle(cubeX + cubeSize/2, cubeY + cubeSize/2, 'sparkle');
+            }
+            if (activeTrail === 'fire' && (keys['ArrowLeft'] || keys['ArrowRight'])) {
+                addParticle(cubeX + cubeSize/2, cubeY + cubeSize, 'fire');
+            }
+            
+            // Horizontal movement
+            if (keys['ArrowLeft'] && cubeX > 0) {
+                cubeX -= speed;
+            }
+            if (keys['ArrowRight'] && cubeX < canvas.width - cubeSize) {
+                cubeX += speed;
+            }
+            
+            // Manual jumping - only when you press spacebar
+            if (keys[' '] && onGround) {
+                velocityY = jumpPower;
+                onGround = false;
+            }
+            
+            // Apply gravity
+            velocityY += gravity;
+            cubeY += velocityY;
+            
+            // Check collision with ground
+            if (cubeY >= groundY) {
+                cubeY = groundY;
+                velocityY = 0;
+                onGround = true;
+            } else {
+                onGround = false;
+            }
+            
+            // Check collision with platforms
+            const cubeRect = { x: cubeX, y: cubeY, width: cubeSize, height: cubeSize };
+            
+            for (let platform of platforms) {
+                if (checkCollision(cubeRect, platform)) {
+                    // If cube is falling and hits platform from above
+                    if (velocityY > 0 && cubeY < platform.y) {
+                        cubeY = platform.y - cubeSize;
+                        velocityY = 0;
+                        onGround = true;
+                    }
+                    // If cube hits platform from below
+                    else if (velocityY < 0 && cubeY > platform.y) {
+                        cubeY = platform.y + platform.height;
+                        velocityY = 0;
+                    }
+                }
+            }
+            
+            // Check item collection
+            checkItems();
+            
+            // Don't let cube go above screen
+            if (cubeY < 0) {
+                cubeY = 0;
+                velocityY = 0;
+            }
+            
+            // Update camera - less aggressive when going down
+            targetCameraY = cubeY - canvas.height / 2;
+            
+            // Different camera behavior for up vs down
+            if (targetCameraY < cameraY) {
+                // Going up - follow normally
+                cameraY += (targetCameraY - cameraY) * 0.1;
+            } else {
+                // Going down - follow much less aggressively
+                cameraY += (targetCameraY - cameraY) * 0.03;
+            }
+            
+            // Keep camera within bounds
+            if (cameraY < -200) cameraY = -200;
+            if (cameraY > 600) cameraY = 600;
+        }
+        
+        // Get cube color
+        function getCubeColor() {
+            if (speedBoostTimer > 0 || jumpBoostTimer > 0) {
+                return '#ff8800'; // Orange when boosted
+            }
+            
+            switch (activeColor) {
+                case 'blue': return '#0088ff';
+                case 'green': return '#00ff00';
+                case 'purple': return '#8800ff';
+                case 'gold': return '#ffd700';
+                case 'rainbow': 
+                    const hue = (Date.now() * 0.1) % 360;
+                    return `hsl(${hue}, 70%, 50%)`;
+                default: return '#ff0000';
+            }
+        }
+        
+        function draw() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Save context and apply camera transform
+            ctx.save();
+            ctx.translate(0, -cameraY);
+            
+            // Draw grey surface
+            ctx.fillStyle = '#808080';
+            ctx.fillRect(0, 1050, canvas.width, 150);
+            
+            // Draw platforms
+            platforms.forEach((platform, index) => {
+                if (platform.y > 850) {
+                    ctx.fillStyle = '#555';
+                } else if (platform.y > 750) {
+                    ctx.fillStyle = '#666';
+                } else if (platform.y > 650) {
+                    ctx.fillStyle = '#777';
+                } else if (platform.y > 550) {
+                    ctx.fillStyle = '#888';
+                } else if (platform.y > 450) {
+                    ctx.fillStyle = '#999';
+                } else if (platform.y > 350) {
+                    ctx.fillStyle = '#aaa';
+                } else if (platform.y > 250) {
+                    ctx.fillStyle = '#bbb';
+                } else if (platform.y > 150) {
+                    ctx.fillStyle = '#ccc';
+                } else {
+                    ctx.fillStyle = '#ddd';
+                }
+                
+                if (platform.width < 80) {
+                    ctx.fillStyle = '#ff4444';
+                }
+                if (platform.width < 60) {
+                    ctx.fillStyle = '#ff0000';
+                }
+                if (platform.width < 40) {
+                    ctx.fillStyle = '#cc0000';
+                }
+                
+                ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+                
+                ctx.strokeStyle = '#00ff00';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(platform.x, platform.y, platform.width, platform.height);
+            });
+            
+            // Draw coins
+            coinItems.forEach(coin => {
+                if (!coin.collected) {
+                    ctx.fillStyle = '#ffff00';
+                    ctx.fillRect(coin.x, coin.y, coin.width, coin.height);
+                    
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(coin.x, coin.y, coin.width, coin.height);
+                }
+            });
+            
+            // Draw power-ups
+            powerUps.forEach(powerUp => {
+                if (!powerUp.collected) {
+                    if (powerUp.type === 'speed') {
+                        ctx.fillStyle = '#00ffff';
+                    } else if (powerUp.type === 'jump') {
+                        ctx.fillStyle = '#ff00ff';
+                    }
+                    ctx.fillRect(powerUp.x, powerUp.y, powerUp.width, powerUp.height);
+                    
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(powerUp.x, powerUp.y, powerUp.width, powerUp.height);
+                }
+            });
+            
+            // Draw particles
+            particles.forEach(particle => {
+                ctx.globalAlpha = particle.life / 30;
+                if (particle.type === 'coin') {
+                    ctx.fillStyle = '#ffff00';
+                } else if (particle.type === 'powerup') {
+                    ctx.fillStyle = '#00ffff';
+                } else if (particle.type === 'sparkle') {
+                    ctx.fillStyle = '#ffffff';
+                } else if (particle.type === 'fire') {
+                    ctx.fillStyle = '#ff6600';
+                }
+                ctx.fillRect(particle.x, particle.y, 3, 3);
+            });
+            ctx.globalAlpha = 1;
+            
+            // Draw cube
+            ctx.fillStyle = getCubeColor();
+            ctx.fillRect(cubeX, cubeY, cubeSize, cubeSize);
+            
+            ctx.strokeStyle = '#ffff00';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(cubeX, cubeY, cubeSize, cubeSize);
+            
+            // Draw magnet effect
+            if (magnetActive) {
+                ctx.strokeStyle = '#00ffff';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([5, 5]);
+                ctx.strokeRect(cubeX - 40, cubeY - 40, cubeSize + 80, cubeSize + 80);
+                ctx.setLineDash([]);
+            }
+            
+            // Draw green indicator when cube can jump
+            if (onGround) {
+                ctx.fillStyle = '#00ff00';
+                ctx.fillRect(cubeX + cubeSize/2 - 5, cubeY - 10, 10, 5);
+            }
+            
+            // Draw level indicators
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '16px Arial';
+            ctx.fillText('Ground Level', 10, 1030);
+            ctx.fillText('Level 1', 10, 930);
+            ctx.fillText('Level 2', 10, 830);
+            ctx.fillText('Level 3', 10, 710);
+            ctx.fillText('Level 4', 10, 590);
+            ctx.fillText('Level 5', 10, 470);
+            ctx.fillText('Level 6', 10, 350);
+            ctx.fillText('Level 7 - Sky', 10, 230);
+            ctx.fillText('Level 8 - High Sky', 10, 130);
+            ctx.fillText('THE CEILING!', 10, 70);
+            
+            // Restore context after drawing world elements
+            ctx.restore();
+            
+            // Draw UI elements (not affected by camera)
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '12px Arial';
+            ctx.fillText('Items: 🟡 Coins (+10) | 🔵 Speed Boost (+25) | 🟣 Jump Boost (+25)', 10, 10);
+        }
+        
+        function gameLoop() {
+            updateCube();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Start the game
+        updateScore();
+        gameLoop();
+    </script>
+</body>
+</html> 

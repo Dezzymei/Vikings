@@ -1,0 +1,29 @@
+{
+  "name": "space-adventure-game",
+  "version": "1.0.0",
+  "description": "🚀 A fun space adventure game built with TypeScript for a 9-year-old and their developer Dad!",
+  "main": "game.js",
+  "scripts": {
+    "build": "tsc game.ts --outDir . --target es2017 --lib es2017,dom --strict",
+    "watch": "tsc game.ts --outDir . --target es2017 --lib es2017,dom --strict --watch",
+    "start": "npm run build && python3 -m http.server 8000 || python -m SimpleHTTPServer 8000",
+    "dev": "npm run watch & python3 -m http.server 8000 || python -m SimpleHTTPServer 8000"
+  },
+  "keywords": [
+    "game",
+    "typescript",
+    "canvas",
+    "space",
+    "adventure",
+    "kids",
+    "learning"
+  ],
+  "author": "A 9-year-old game developer and their awesome Dad!",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
